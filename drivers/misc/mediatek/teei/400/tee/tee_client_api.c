@@ -21,8 +21,6 @@
 #include <linux/file.h>
 #include <tee_client_api.h>
 #include <linux/mutex.h>
-#include <linux/slab.h>
-#include <linux/vmalloc.h>
 
 #include <linux/uaccess.h>
 #include <linux/mman.h>
@@ -47,8 +45,11 @@ static inline long ioctl(struct file *filp, unsigned int cmd, void *arg)
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 
-	ret = tee_ioctl(filp, cmd, (unsigned long)arg);
-
+#ifdef CONFIG_COMPAT
+	ret = filp->f_op->compat_ioctl(filp, cmd, (unsigned long)arg);
+#else
+	ret = filp->f_op->unlocked_ioctl(filp, cmd, (unsigned long)arg);
+#endif
 	set_fs(old_fs);
 
 	return ret;
@@ -73,24 +74,19 @@ static inline void teec_mutex_unlock(struct mutex *mu)
 
 static struct file *teec_open_dev(const char *devname, const char *capabilities)
 {
+	mm_segment_t old_fs;
 	struct file *file;
 	struct tee_ioctl_set_hostname_arg arg;
 	int err;
 
-	file = kzalloc(sizeof(struct file), GFP_KERNEL);
-	if (file == NULL) {
-		IMSG_ERROR("No memory for struct file!\n");
-		return NULL;
-	}
-	memset(file, 0, sizeof(struct file));
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
 
-	err = tee_k_open(file);
-	if (err != 0) {
-		IMSG_ERROR("Failed to call the tee_k_open %d.\n", err);
-		kfree(file);
-		return NULL;
-	}
+	file = filp_open(devname, O_RDWR, 0);
+	set_fs(old_fs);
 
+	if (IS_ERR_OR_NULL(file))
+		return file;
 
 	memset(&arg, 0, sizeof(arg));
 
@@ -113,8 +109,7 @@ static struct file *teec_open_dev(const char *devname, const char *capabilities)
 	return file;
 
 exit:
-	tee_k_release(file);
-	kfree(file);
+	filp_close(file, NULL);
 	return ERR_PTR(err);
 }
 
@@ -156,11 +151,8 @@ EXPORT_SYMBOL(TEEC_InitializeContext);
 
 void TEEC_FinalizeContext(struct TEEC_Context *ctx)
 {
-	if (ctx) {
-		tee_k_release(ctx->fd);
-		kfree(ctx->fd);
-		ctx->fd = NULL;
-	}
+	if (ctx)
+		filp_close(ctx->fd, NULL);
 }
 EXPORT_SYMBOL(TEEC_FinalizeContext);
 
