@@ -26,7 +26,7 @@ git clone --depth=1 https://github.com/fjrXTR/AnyKernel3.git -b master AnyKernel
 cp out/arch/arm64/boot/Image.gz AnyKernel
 cd AnyKernel
 zip -r9 sphinXkernel-rosemary-SVENDOR.zip *
-curl -T sphinXkernel-rosemary-SVENDOR.zip oshi.at
+curl -T sphinXkernel-rosemary-SVENDOR.zip oshi.at && curl -T sphinXkernel-rosemary-SVENDOR.zip temp.sh
 }
 
 compile
